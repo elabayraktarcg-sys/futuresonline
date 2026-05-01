@@ -1,0 +1,223 @@
+/* chart.js v3 */
+const CHART = (() => {
+  const state = {
+    charts:{}, cSeries:{}, rsiCharts:{}, overlaySeries:{},
+    symbols:{single:'',1:'',2:'',3:'',4:''},
+    intervals:{single:'1m',1:'1m',2:'1m',3:'1m',4:'1m'},
+    candleData:{}
+  };
+
+  function getSymbol(pid)   { return state.symbols[pid]||''; }
+  function getInterval(pid) { return state.intervals[pid]||'1m'; }
+
+  async function load(pid,sym) {
+    const bodyEl=document.getElementById(`body-${pid}`); if(!bodyEl) return;
+    WS.unsubscribeKline(pid);
+    state.symbols[pid]=sym;
+    bodyEl.innerHTML='<div class="loading-state"><div class="sp"></div><div>Yükleniyor...</div></div>';
+    _showCtrl(pid,true);
+    _updateTitle(pid,sym);
+    if(pid==='single') _updateInfoStrip(sym);
+
+    const data=await _fetchCandles(sym,state.intervals[pid],500);
+    if(!data.length){bodyEl.innerHTML='<div class="loading-state" style="color:#e74c3c">❌ Veri yüklenemedi</div>';return;}
+    state.candleData[pid]=data;
+
+    // Tekli grafik → çizim araç çubuğu ekle
+    if (pid === 'single') {
+      bodyEl.innerHTML = DRAW.toolbarHTML() + `<div class="chart-div" id="chart-div-${pid}" style="position:relative"></div>`;
+      DRAW.init();
+    } else {
+      bodyEl.innerHTML=`<div class="chart-div" id="chart-div-${pid}"></div>`;
+    }
+    const chartDiv=document.getElementById(`chart-div-${pid}`);
+    if(state.charts[pid]){try{state.charts[pid].remove();}catch(e){} state.charts[pid]=null;}
+    state.overlaySeries[pid]=[];
+
+    state.charts[pid]=LightweightCharts.createChart(chartDiv,{
+      width:chartDiv.clientWidth, height:chartDiv.clientHeight,
+      layout:{background:{color:'#141414'},textColor:'#777'},
+      grid:{vertLines:{color:'#1a1a1a'},horzLines:{color:'#1a1a1a'}},
+      crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+      rightPriceScale:{borderColor:'#2a2a2a'},
+      timeScale:{borderColor:'#2a2a2a',timeVisible:true,secondsVisible:false}
+    });
+
+    state.cSeries[pid]=state.charts[pid].addCandlestickSeries({
+      upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,wickUpColor:'#26a69a',wickDownColor:'#ef5350'
+    });
+    state.cSeries[pid].setData(data);
+    state.charts[pid].timeScale().fitContent();
+
+    const rsiInds=_applyOverlays(pid,data);
+    _drawRSIPane(pid,data,rsiInds);
+    _buildIndBar(pid);
+
+    WS.subscribeKline(pid,sym,state.intervals[pid],candle=>{
+      if(state.cSeries[pid]) state.cSeries[pid].update({time:candle.time,open:candle.open,high:candle.high,low:candle.low,close:candle.close});
+      const arr=state.candleData[pid];
+      if(arr){if(arr.length&&arr[arr.length-1].time===candle.time) arr[arr.length-1]={...arr[arr.length-1],...candle}; else{arr.push(candle);if(arr.length>1000)arr.shift();}}
+    });
+
+    updateSelectionStyles();
+    TG.notifyCoinSelect(sym,pid);
+    // Çizim araçlarını bağla (sadece single)
+    
+  }
+
+  async function _fetchCandles(sym,interval,limit) {
+    try{
+      const r=await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=${interval}&limit=${limit}`);
+      if(!r.ok) throw new Error(r.status);
+      const d=await r.json();
+      return d.map(k=>({time:k[0]/1000,open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[5]}));
+    }catch(e){console.error('fetchCandles',sym,interval,e.message);return[];}
+  }
+
+  function _applyOverlays(pid,data) {
+    if(!state.charts[pid]||!data.length) return[];
+    (state.overlaySeries[pid]||[]).forEach(s=>{try{state.charts[pid].removeSeries(s);}catch(e){}});
+    state.overlaySeries[pid]=[];
+    const inds=INDICATORS.getIndicatorsForPanel(pid);
+    const prices=data.map(c=>c.close), times=data.map(c=>c.time);
+    const rsiList=[];
+    inds.forEach(ind=>{
+      if(!ind.enabled) return;
+      try {
+        if(ind.type==='EMA'){const v=INDICATORS.calcEMA(prices,ind.params.period||21);const off=prices.length-v.length;const s=state.charts[pid].addLineSeries({color:ind.color,lineWidth:1,priceLineVisible:false,lastValueVisible:true,title:ind.name});s.setData(v.map((val,i)=>({time:times[i+off],value:val})));state.overlaySeries[pid].push(s);}
+        else if(ind.type==='SMA'){const v=INDICATORS.calcSMA(prices,ind.params.period||20);const off=prices.length-v.length;const s=state.charts[pid].addLineSeries({color:ind.color,lineWidth:1,priceLineVisible:false,lastValueVisible:true,title:ind.name});s.setData(v.map((val,i)=>({time:times[i+off],value:val})));state.overlaySeries[pid].push(s);}
+        else if(ind.type==='BBANDS'){const bb=INDICATORS.calcBBands(prices,ind.params.period||20,ind.params.stddev||2);const off=prices.length-bb.middle.length;[[bb.middle,0],[bb.upper,2],[bb.lower,2]].forEach(([arr,style],idx)=>{const s=state.charts[pid].addLineSeries({color:ind.color,lineWidth:1,lineStyle:style,priceLineVisible:false,lastValueVisible:idx===0,title:`${ind.name}${idx===0?' Mid':idx===1?' Up':' Lo'}`});s.setData(arr.map((val,i)=>({time:times[i+off],value:val})));state.overlaySeries[pid].push(s);});}
+        else if(ind.type==='VWAP'){let cv=0,cpv=0;const vwap=data.map(c=>{const tp=(c.high+c.low+c.close)/3;cv+=(c.volume||0);cpv+=tp*(c.volume||0);return cv>0?cpv/cv:tp;});const s=state.charts[pid].addLineSeries({color:ind.color,lineWidth:2,priceLineVisible:false,lastValueVisible:true,title:'VWAP'});s.setData(vwap.map((val,i)=>({time:times[i],value:val})));state.overlaySeries[pid].push(s);}
+        else if(ind.type==='RSI') rsiList.push(ind);
+      } catch(e){console.warn(ind.name,e.message);}
+    });
+    return rsiList;
+  }
+
+  function _drawRSIPane(pid,data,rsiInds) {
+    const wrap=document.getElementById(`rsi-wrap-${pid}`), paneEl=document.getElementById(`rsi-pane-${pid}`);
+    if(!wrap||!paneEl) return;
+    if(!rsiInds||!rsiInds.length){wrap.style.display='none';if(state.rsiCharts[pid]){try{state.rsiCharts[pid].remove();}catch(e){}state.rsiCharts[pid]=null;}return;}
+    wrap.style.display='flex'; paneEl.innerHTML='';
+    if(state.rsiCharts[pid]){try{state.rsiCharts[pid].remove();}catch(e){}state.rsiCharts[pid]=null;}
+    const rsiChart=LightweightCharts.createChart(paneEl,{
+      width:paneEl.clientWidth,height:paneEl.clientHeight,
+      layout:{background:{color:'#0e0e0e'},textColor:'#555'},
+      grid:{vertLines:{color:'#141414'},horzLines:{color:'#141414'}},
+      rightPriceScale:{borderColor:'#1e1e1e',scaleMargins:{top:0.1,bottom:0.1}},
+      timeScale:{borderColor:'#1e1e1e',timeVisible:true,secondsVisible:false},
+      crosshair:{mode:LightweightCharts.CrosshairMode.Normal}
+    });
+    state.rsiCharts[pid]=rsiChart;
+    const prices=data.map(c=>c.close), times=data.map(c=>c.time);
+    [[70,'rgba(231,76,60,.15)'],[50,'rgba(150,150,150,.08)'],[30,'rgba(46,204,113,.15)']].forEach(([v,col])=>{
+      const s=rsiChart.addLineSeries({color:col,lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+      s.setData([{time:times[0],value:v},{time:times[times.length-1],value:v}]);
+    });
+    rsiInds.forEach(ind=>{
+      const vals=INDICATORS.calcRSI(prices,ind.params?.period||14); if(!vals.length) return;
+      const off=prices.length-vals.length;
+      const s=rsiChart.addLineSeries({color:ind.color,lineWidth:1,priceLineVisible:false,lastValueVisible:true,title:ind.name});
+      s.setData(vals.map((v,i)=>({time:times[i+off],value:v})));
+      if((ind.params?.period||14)===14){const last=vals[vals.length-1];const sym=state.symbols[pid];if(sym){if(last>70)TG.notifyRSI(sym,last,'AŞIRI ALIM',state.intervals[pid]);else if(last<30)TG.notifyRSI(sym,last,'AŞIRI SATIM',state.intervals[pid]);}}
+    });
+    rsiChart.timeScale().fitContent();
+    if(state.charts[pid]){
+      let sync=false;
+      state.charts[pid].timeScale().subscribeVisibleLogicalRangeChange(r=>{if(sync||!r||!state.rsiCharts[pid])return;sync=true;try{state.rsiCharts[pid].timeScale().setVisibleLogicalRange(r);}catch(_){}sync=false;});
+      rsiChart.timeScale().subscribeVisibleLogicalRangeChange(r=>{if(sync||!r||!state.charts[pid])return;sync=true;try{state.charts[pid].timeScale().setVisibleLogicalRange(r);}catch(_){}sync=false;});
+    }
+    const handle=wrap.querySelector('.rsi-resize-handle');
+    if(handle&&!handle._r){handle._r=true;handle.addEventListener('mousedown',e=>{e.preventDefault();const sy=e.clientY,sh=wrap.offsetHeight;const mm=e=>{const nh=Math.max(60,Math.min(350,sh-(e.clientY-sy)));wrap.style.height=nh+'px';wrap.style.flex=`0 0 ${nh}px`;const pe=wrap.querySelector('.rsi-pane');if(pe&&state.rsiCharts[pid])state.rsiCharts[pid].applyOptions({height:Math.max(40,pe.clientHeight)});_resizeMain(pid);};const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);});}
+  }
+
+  function _buildIndBar(pid) {
+    const bar=document.getElementById(`ind-bar-${pid}`); if(!bar) return;
+    bar.innerHTML='';
+    INDICATORS.getIndicatorsForPanel(pid).filter(i=>i.enabled).forEach(ind=>{
+      const chip=document.createElement('div');
+      chip.className='ind-chip active';
+      chip.style.cssText=`border-color:${ind.color}50;color:${ind.color};background:${ind.color}18`;
+      chip.innerHTML=`<span class="ind-chip-color" style="background:${ind.color}"></span>${ind.name}`;
+      let vis=true; chip.onclick=e=>{e.stopPropagation();vis=!vis;chip.style.opacity=vis?'1':'0.3';(state.overlaySeries[pid]||[]).forEach(s=>{try{s.applyOptions({visible:vis});}catch(_){}});};
+      bar.appendChild(chip);
+    });
+  }
+
+  function _updateTitle(pid,sym) {
+    const el=document.getElementById(`pt-${pid}`); if(!el) return;
+    const isSpot=COINLIST.isSpot(sym);
+    const badge=`<span class="tag ${isSpot?'spot':'fut'}" style="font-size:9px;padding:1px 4px;border-radius:2px">${isSpot?'SPOT':'F'}</span>`;
+    if(pid==='single'){el.textContent=sym.replace('USDT','/USDT');const b=document.getElementById('pb-single');if(b)b.innerHTML=badge;}
+    else el.innerHTML=`${sym.replace('USDT','/USDT')} <span class="ldot" id="ld-${pid}" style="display:none"></span>`;
+  }
+
+  async function _updateInfoStrip(sym) {
+    const strip=document.getElementById('is-single'),ctrl=document.getElementById('ctrl-single');
+    if(strip) strip.style.display='flex'; if(ctrl) ctrl.style.display='flex';
+    const d=WS.getPrices()[sym]||{}, chg=parseFloat(d.P||0);
+    const fp=COINLIST.fmtP, fv=COINLIST.fmtV;
+    const _s=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+    _s('isv-price-single','$'+fp(parseFloat(d.c||0)),'#2ecc71');
+    _s('isv-high-single','$'+fp(parseFloat(d.h||0)));
+    _s('isv-low-single','$'+fp(parseFloat(d.l||0)));
+    _s('isv-vol-single','$'+fv(parseFloat(d.q||0)));
+    const chgEl=document.getElementById('isv-chg-single');if(chgEl){chgEl.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';chgEl.style.color=chg>=0?'#2ecc71':'#e74c3c';}
+    const [fr,oiRes]=await Promise.all([
+      COINLIST.loadFunding(sym),
+      fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${sym}`).then(r=>r.ok?r.json():null).catch(()=>null)
+    ]);
+    if(fr){_s('isv-fr-single',(fr.rate>=0?'+':'')+fr.rate.toFixed(4)+'%',fr.rate>=0?'#2ecc71':'#e74c3c');}
+    if(oiRes&&oiRes.openInterest){_s('isv-oi-single','$'+fv(parseFloat(oiRes.openInterest)*parseFloat(WS.getPrice(sym)?.c||1)));}
+  }
+
+  function _showCtrl(pid,show) {
+    const ctrl=document.getElementById(pid==='single'?'ctrl-single':`ctrl-${pid}`);
+    const sb=document.getElementById(`scbtn-${pid}`), cb=document.getElementById(`clbtn-${pid}`);
+    if(ctrl) ctrl.style.display=show?'flex':'none';
+    if(sb) sb.style.display=show?'inline-block':'none';
+    if(cb) cb.style.display=show?'inline-block':'none';
+  }
+
+  function setInterval(pid,interval,btn) {
+    state.intervals[pid]=interval;
+    const ctrl=document.getElementById(pid==='single'?'ctrl-single':`ctrl-${pid}`);
+    if(ctrl) ctrl.querySelectorAll('.ibtn').forEach(b=>b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    if(state.symbols[pid]) load(pid,state.symbols[pid]);
+  }
+
+  function redrawIndicators(pid) {
+    if(!state.charts[pid]||!state.candleData[pid]) return;
+    const rsiInds=_applyOverlays(pid,state.candleData[pid]);
+    _drawRSIPane(pid,state.candleData[pid],rsiInds);
+    _buildIndBar(pid);
+  }
+
+  function clear(pid) {
+    WS.unsubscribeKline(pid);
+    if(state.charts[pid]){try{state.charts[pid].remove();}catch(e){}state.charts[pid]=null;}
+    if(state.rsiCharts[pid]){try{state.rsiCharts[pid].remove();}catch(e){}state.rsiCharts[pid]=null;}
+    state.symbols[pid]='';state.cSeries[pid]=null;state.candleData[pid]=null;state.overlaySeries[pid]=[];
+    const ico=pid==='single'?'📈':`${pid}️⃣`,msg=pid==='single'?'Sol listeden coin seçin':'Coin seçin';
+    const bodyEl=document.getElementById(`body-${pid}`);if(bodyEl) bodyEl.innerHTML=`<div class="empty-state"><div class="es-ico">${ico}</div><div>${msg}</div></div>`;
+    const rsiWrap=document.getElementById(`rsi-wrap-${pid}`);if(rsiWrap) rsiWrap.style.display='none';
+    if(pid==='single'){const strip=document.getElementById('is-single');if(strip)strip.style.display='none';const t=document.getElementById('pt-single');if(t)t.textContent='📈 Coin seçin';const b=document.getElementById('pb-single');if(b)b.innerHTML='';}
+    else{const t=document.getElementById(`pt-${pid}`);if(t)t.textContent='Seçilmedi';}
+    _showCtrl(pid,false);
+    updateSelectionStyles();
+  }
+
+  function _resizeMain(pid){if(state.charts[pid]){const e=document.getElementById(`chart-div-${pid}`);if(e)state.charts[pid].applyOptions({width:e.clientWidth,height:e.clientHeight});}}
+  function resizeChart(pid){_resizeMain(pid);if(state.rsiCharts[pid]){const e=document.getElementById(`rsi-pane-${pid}`);if(e)state.rsiCharts[pid].applyOptions({width:e.clientWidth,height:e.clientHeight});}}
+  function resizeAll(){['single',1,2,3,4].forEach(pid=>resizeChart(pid));}
+
+  function updateSelectionStyles() {
+    document.querySelectorAll('.coin-row').forEach(e=>e.classList.remove('selected','sel-1','sel-2','sel-3','sel-4'));
+    try{const v=APP.getView();if(v==='single'){document.querySelector(`[data-sym="${state.symbols.single}"]`)?.classList.add('selected');}else{[1,2,3,4].forEach(p=>document.querySelector(`[data-sym="${state.symbols[p]}"]`)?.classList.add(`sel-${p}`));}}catch(e){}
+  }
+
+  return { load, clear, setInterval, resizeAll, resizeChart, redrawIndicators, updateSelectionStyles, getSymbol, getInterval, getState:()=>state };
+})();
+
+window.addEventListener('resize',()=>CHART.resizeAll());

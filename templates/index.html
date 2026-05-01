@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<title>Binance Futures Pro</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<link rel="stylesheet" href="/static/css/style.css">
+<style>
+  /* Strateji Dropdown Stilleri */
+  .strategy-dropdown {
+    position: relative;
+    display: inline-block;
+  }
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: #1f2229;
+    min-width: 220px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5);
+    z-index: 9999;
+    border-radius: 8px;
+    border: 1px solid #3a3f4b;
+    overflow: hidden;
+    animation: fadeIn 0.3s;
+  }
+  /* Buton ile menü arasındaki boşluğu kapatmak için görünmez köprü */
+  .strategy-dropdown::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    right: 0;
+    width: 100%;
+    height: 10px;
+  }
+  .dropdown-content a {
+    color: #a0a0a0;
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    font-size: 13px;
+    transition: all 0.2s;
+    border-bottom: 1px solid #2d3139;
+  }
+  .dropdown-content a:last-child { border-bottom: none; }
+  .dropdown-content a:hover {
+    background-color: #2d3139;
+    color: #ff9800;
+    padding-left: 20px;
+  }
+  .strategy-dropdown:hover .dropdown-content {
+    display: block;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<div class="header">
+  <div class="header-left">
+    <span class="logo">⚡ Futures Pro</span>
+    <div class="view-btns">
+      <button class="vbtn active" id="vbtn-single" onclick="APP.switchView('single')">📊 Tek</button>
+      <button class="vbtn"        id="vbtn-quad"   onclick="APP.switchView('quad')">📈 4 Grafik</button>
+      <button class="vbtn"        id="vbtn-seven"  onclick="APP.switchView('seven')">🔢 6 Zaman</button>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="conn-status"><span class="sdot" id="sdot"></span><span id="tcnt">0</span></span>
+    <button class="hbtn" onclick="LAYOUT.openModal()">💾 Düzen</button>
+    <button class="hbtn" onclick="INDICATORS.openModal()">📊 İndikatör</button>
+    <div class="strategy-dropdown">
+      <button class="hbtn" style="background:#ff9800; color:white;">🎯 Stratejiler ▼</button>
+      <div class="dropdown-content">
+        <a href="/strategy" target="_blank">🚀 3 RSI</a>
+        <a href="#" style="opacity:0.5; cursor:not-allowed;">🔒 Bollinger Band (Yakında)</a>
+        <a href="#" style="opacity:0.5; cursor:not-allowed;">🔒 MACD & Cross (Yakında)</a>
+      </div>
+    </div>
+    <button class="hbtn" onclick="TG.openModal()">✈️ Telegram</button>
+  </div>
+</div>
+
+<!-- ═══ TICKER BAR ═══ -->
+<div class="ticker-bar">
+  <div class="tb-item">
+    <span class="tb-label">BTC.D</span>
+    <span class="tb-val" id="tb-btcd-val">—</span>
+    <span class="tb-chg" id="tb-btcd-chg"></span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-item">
+    <span class="tb-label">TOTAL3</span>
+    <span class="tb-val" id="tb-total3-val">—</span>
+    <span class="tb-chg" id="tb-total3-chg"></span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-item">
+    <span class="tb-label">USDT.D</span>
+    <span class="tb-val" id="tb-usdtd-val">—</span>
+    <span class="tb-chg" id="tb-usdtd-chg"></span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-item">
+    <span class="tb-label">BTC</span>
+    <span class="tb-val" id="tb-btc-val">—</span>
+    <span class="tb-chg" id="tb-btc-chg"></span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-item">
+    <span class="tb-label">ETH</span>
+    <span class="tb-val" id="tb-eth-val">—</span>
+    <span class="tb-chg" id="tb-eth-chg"></span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-item">
+    <span class="tb-label">F&amp;G</span>
+    <span class="tb-val" id="tb-fg-val">—</span>
+    <span class="tb-chg" id="tb-fg-lbl" style="color:var(--text3)"></span>
+  </div>
+</div>
+
+<!-- ═══ BODY ═══ -->
+<div class="app-body" id="app-body">
+
+  <!-- LEFT PANEL -->
+  <div class="left-panel" id="left-panel">
+
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-all" onclick="COINLIST.setTab('all',this)">🌐 Tümü</button>
+      <button class="tab-btn"        id="tab-fav" onclick="COINLIST.setTab('fav',this)">⭐ Favoriler</button>
+      <span id="fav-count" class="fav-count">0</span>
+    </div>
+
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="🔍 BTC, ETH, SOL..." oninput="COINLIST.filter(this.value)">
+      <button class="search-clear" id="search-clear" onclick="COINLIST.clearSearch()" style="display:none">✕</button>
+    </div>
+
+    <div class="sort-bar">
+      <button class="sbtn active" onclick="COINLIST.sort('vol',this)">Hacim<span class="sort-arrow" id="arr-vol">↓</span></button>
+      <button class="sbtn" onclick="COINLIST.sort('chg',this)">Değ<span class="sort-arrow" id="arr-chg"></span></button>
+      <button class="sbtn" onclick="COINLIST.sort('oi',this)">I.O<span class="sort-arrow" id="arr-oi"></span></button>
+      <button class="sbtn" onclick="COINLIST.sort('fr',this)">FR<span class="sort-arrow" id="arr-fr"></span></button>
+      <button class="sbtn" onclick="COINLIST.sort('price',this)">Fiyat<span class="sort-arrow" id="arr-price"></span></button>
+    </div>
+
+    <!-- Sütun başlıkları: Sembol/Fiyat | Değişim | Hacim | I.O | FR -->
+    <div class="list-header">
+      <span style="flex:2.2">Sembol / Fiyat</span>
+      <span style="text-align:right;flex:1">Değ%</span>
+      <span style="text-align:right;flex:1">Hacim</span>
+      <span style="text-align:right;flex:1">I.O</span>
+      <span style="text-align:right;flex:1">FR%</span>
+    </div>
+
+    <div class="coin-list" id="coin-list">
+      <div class="list-loading"><div class="sp"></div><span>Bekleniyor...</span></div>
+    </div>
+  </div>
+
+  <div class="vr-handle" id="vr-handle"></div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel" id="right-panel">
+
+    <!-- ═ SINGLE VIEW ═ -->
+    <div class="view single-view active" id="single-view">
+      <div class="chart-panel" id="panel-single">
+        <div class="panel-header">
+          <div class="ph-left">
+            <span class="ph-title" id="pt-single">📈 Coin seçin</span>
+            <div class="interval-group" id="ig-single" style="display:none; margin-left: 15px; border:none; background:transparent;">
+              <button class="ibtn active" onclick="CHART.setInterval('single','1',this)">1dk</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','3',this)">3dk</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','5',this)">5dk</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','15',this)">15dk</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','30',this)">30dk</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','60',this)">1sa</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','120',this)">2sa</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','180',this)">3sa</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','240',this)">4sa</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','360',this)">6sa</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','480',this)">8sa</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','D',this)">G</button>
+              <button class="ibtn" onclick="CHART.setInterval('single','W',this)">H</button>
+            </div>
+            <div class="ind-group" id="ind-bar-single" style="margin-left:10px;"></div>
+          </div>
+          <div class="ph-right">
+            <button class="pact-btn cl-btn" id="clbtn-single" onclick="CHART.clear('single')" style="display:none">✕</button>
+          </div>
+        </div>
+        <div class="chart-body" id="body-single" style="height: calc(100% - 120px); min-height: 200px;">
+          <div class="empty-state" id="es-single"><div class="es-ico">📈</div><div>Sol listeden coin seçin</div></div>
+          <div class="chart-div" id="chart-div-single" style="display:none; height:100% !important; min-height: 300px;"></div>
+        </div>
+        <div class="rsi-pane-wrap" id="rsi-wrap-single" style="display:none!important">
+          <div class="rsi-resize-handle"></div>
+          <div class="rsi-pane" id="rsi-pane-single"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═ QUAD VIEW ═ -->
+    <div class="view quad-view" id="quad-view">
+      <div class="quad-row" id="qrow-1" style="flex:1">
+        <div class="chart-panel quad-panel" id="panel-1" style="flex:1">
+          <div class="panel-header">
+            <div class="ph-left">
+              <span class="pnum pn1">1</span><span class="ph-title" id="pt-1">Seçilmedi</span>
+              <div class="interval-group" id="ig-1" style="display:none; margin-left: 10px; border:none; background:transparent;">
+                <button class="ibtn active" onclick="CHART.setInterval(1,'1',this)">1dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(1,'5',this)">5dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(1,'15',this)">15dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(1,'60',this)">1sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(1,'240',this)">4sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(1,'D',this)">G</button>
+              </div>
+            </div>
+            <div class="ph-right"><button class="pact-btn cl-btn" id="clbtn-1" onclick="CHART.clear(1)" style="display:none">✕</button></div>
+          </div>
+          <div class="chart-body" id="body-1"><div class="empty-state" id="es-1"><div class="es-ico">1️⃣</div><div>Coin seçin</div></div><div class="chart-div" id="chart-div-1" style="display:none"></div></div>
+          <div class="rsi-pane-wrap" id="rsi-wrap-1" style="display:none"><div class="rsi-resize-handle"></div><div class="rsi-pane" id="rsi-pane-1"></div></div>
+        </div>
+        <div class="col-resize-handle" data-row="qrow-1"></div>
+        <div class="chart-panel quad-panel" id="panel-2" style="flex:1">
+          <div class="panel-header">
+            <div class="ph-left">
+              <span class="pnum pn2">2</span><span class="ph-title" id="pt-2">Seçilmedi</span>
+              <div class="interval-group" id="ig-2" style="display:none; margin-left: 10px; border:none; background:transparent;">
+                <button class="ibtn active" onclick="CHART.setInterval(2,'1',this)">1dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(2,'5',this)">5dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(2,'15',this)">15dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(2,'60',this)">1sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(2,'240',this)">4sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(2,'D',this)">G</button>
+              </div>
+            </div>
+            <div class="ph-right"><button class="pact-btn cl-btn" id="clbtn-2" onclick="CHART.clear(2)" style="display:none">✕</button></div>
+          </div>
+          <div class="chart-body" id="body-2"><div class="empty-state" id="es-2"><div class="es-ico">2️⃣</div><div>Coin seçin</div></div><div class="chart-div" id="chart-div-2" style="display:none"></div></div>
+          <div class="rsi-pane-wrap" id="rsi-wrap-2" style="display:none"><div class="rsi-resize-handle"></div><div class="rsi-pane" id="rsi-pane-2"></div></div>
+        </div>
+      </div>
+      <div class="row-resize-handle" id="row-resize"></div>
+      <div class="quad-row" id="qrow-2" style="flex:1">
+        <div class="chart-panel quad-panel" id="panel-3" style="flex:1">
+          <div class="panel-header">
+            <div class="ph-left">
+              <span class="pnum pn3">3</span><span class="ph-title" id="pt-3">Seçilmedi</span>
+              <div class="interval-group" id="ig-3" style="display:none; margin-left: 10px; border:none; background:transparent;">
+                <button class="ibtn active" onclick="CHART.setInterval(3,'1',this)">1dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(3,'5',this)">5dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(3,'15',this)">15dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(3,'60',this)">1sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(3,'240',this)">4sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(3,'D',this)">G</button>
+              </div>
+            </div>
+            <div class="ph-right"><button class="pact-btn cl-btn" id="clbtn-3" onclick="CHART.clear(3)" style="display:none">✕</button></div>
+          </div>
+          <div class="chart-body" id="body-3"><div class="empty-state" id="es-3"><div class="es-ico">3️⃣</div><div>Coin seçin</div></div><div class="chart-div" id="chart-div-3" style="display:none"></div></div>
+          <div class="rsi-pane-wrap" id="rsi-wrap-3" style="display:none"><div class="rsi-resize-handle"></div><div class="rsi-pane" id="rsi-pane-3"></div></div>
+        </div>
+        <div class="col-resize-handle" data-row="qrow-2"></div>
+        <div class="chart-panel quad-panel" id="panel-4" style="flex:1">
+          <div class="panel-header">
+            <div class="ph-left">
+              <span class="pnum pn4">4</span><span class="ph-title" id="pt-4">Seçilmedi</span>
+              <div class="interval-group" id="ig-4" style="display:none; margin-left: 10px; border:none; background:transparent;">
+                <button class="ibtn active" onclick="CHART.setInterval(4,'1',this)">1dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(4,'5',this)">5dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(4,'15',this)">15dk</button>
+                <button class="ibtn" onclick="CHART.setInterval(4,'60',this)">1sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(4,'240',this)">4sa</button>
+                <button class="ibtn" onclick="CHART.setInterval(4,'D',this)">G</button>
+              </div>
+            </div>
+            <div class="ph-right"><button class="pact-btn cl-btn" id="clbtn-4" onclick="CHART.clear(4)" style="display:none">✕</button></div>
+          </div>
+          <div class="chart-body" id="body-4"><div class="empty-state" id="es-4"><div class="es-ico">4️⃣</div><div>Coin seçin</div></div><div class="chart-div" id="chart-div-4" style="display:none"></div></div>
+          <div class="rsi-pane-wrap" id="rsi-wrap-4" style="display:none"><div class="rsi-resize-handle"></div><div class="rsi-pane" id="rsi-pane-4"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═ SIX VIEW — 6 zaman dilimi, tek coin + çizim araçları ═ -->
+    <div class="view seven-view" id="seven-view" style="position:relative;">
+      <!-- Başlık -->
+      <div class="seven-header" style="display:flex; align-items:center; padding: 4px 10px; background: #0e0e14; border-bottom: 1px solid var(--border); min-height: 32px;">
+        <span class="seven-coin-name" id="seven-coin-name" style="font-size:14px; font-weight:700; color:#fff;">— Coin Seçilmedi —</span>
+        <span class="seven-hint" style="font-size:11px; color:var(--text3); margin-left: 10px;">Soldan bir coin tıklayın</span>
+      </div>
+      <!-- 6 panel grid: 3 üst + 3 alt -->
+      <div class="seven-grid" id="seven-grid">
+        <div class="seven-panel" id="sp-5m">
+          <div class="sp-body" id="sp-body-5m"></div>
+        </div>
+        <div class="seven-panel" id="sp-15m">
+          <div class="sp-body" id="sp-body-15m"></div>
+        </div>
+        <div class="seven-panel" id="sp-30m">
+          <div class="sp-body" id="sp-body-30m"></div>
+        </div>
+        <div class="seven-panel" id="sp-1h">
+          <div class="sp-body" id="sp-body-1h"></div>
+        </div>
+        <div class="seven-panel" id="sp-4h">
+          <div class="sp-body" id="sp-body-4h"></div>
+        </div>
+        <div class="seven-panel" id="sp-1d">
+          <div class="sp-body" id="sp-body-1d"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /right-panel -->
+</div><!-- /app-body -->
+
+<!-- MODALS -->
+<div class="modal-ov" id="ov-ind">
+  <div class="modal" style="width:560px">
+    <div class="modal-head"><h2>📊 İndikatör Yönetimi</h2><button class="mc" onclick="closeModal('ov-ind')">✕</button></div>
+    <div id="ind-list"></div>
+    <hr class="mhr">
+    <input type="hidden" id="ind-edit-id">
+    <div class="form-row">
+      <div class="fg"><label>Adı</label><input id="ind-name" placeholder="RSI(14), EMA(21)..."></div>
+      <div class="fg"><label>Tip</label>
+        <select id="ind-type" onchange="INDICATORS.typeChange()">
+          <option value="RSI">RSI</option><option value="EMA">EMA</option>
+          <option value="SMA">SMA</option><option value="BBANDS">Bollinger Bands</option>
+          <option value="VWAP">VWAP</option>
+        </select>
+      </div>
+    </div>
+    <div id="ind-params-area" class="form-row"></div>
+    <div class="form-row">
+      <div class="fg"><label>Renk</label><input type="color" id="ind-color" value="#667eea" style="height:36px;padding:2px;"></div>
+      <div class="fg"><label>Panel</label>
+        <select id="ind-panel">
+          <option value="all">Tüm Paneller</option>
+          <option value="single">Tek Grafik</option>
+          <option value="1">Panel 1</option><option value="2">Panel 2</option>
+          <option value="3">Panel 3</option><option value="4">Panel 4</option>
+        </select>
+      </div>
+    </div>
+    <div class="mfooter">
+      <button class="mbtn sec" onclick="closeModal('ov-ind')">Kapat</button>
+      <button class="mbtn pri" onclick="INDICATORS.save()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-ov" id="ov-layout">
+  <div class="modal" style="width:460px">
+    <div class="modal-head"><h2>💾 Düzen</h2><button class="mc" onclick="closeModal('ov-layout')">✕</button></div>
+    <div class="layout-slots" id="layout-slots"></div>
+    <div class="layout-preview" id="layout-preview">Slot seçin.</div>
+    <div class="mfooter">
+      <button class="mbtn sec" onclick="closeModal('ov-layout')">Kapat</button>
+      <button class="mbtn pri" onclick="LAYOUT.save()">💾 Kaydet</button>
+      <button class="mbtn info" onclick="LAYOUT.load()">📂 Yükle</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-ov" id="ov-tg">
+  <div class="modal">
+    <div class="modal-head"><h2>✈️ Telegram</h2><button class="mc" onclick="closeModal('ov-tg')">✕</button></div>
+    <div class="fg"><label>Bot Token</label><input id="tg-tok" type="password" placeholder="123456:ABC..."></div>
+    <div class="fg"><label>Chat ID</label><input id="tg-cid" placeholder="123456789"></div>
+    <div class="fg"><label>Test Mesajı</label><input id="tg-msg" value="✅ Binance Futures Pro — Bağlantı başarılı!"></div>
+    <div id="tg-res" class="tg-result" style="display:none"></div>
+    <hr class="mhr">
+    <div class="notify-list">
+      <label class="chk-label"><input type="checkbox" id="tg-sel"> Coin seçildiğinde</label>
+      <label class="chk-label"><input type="checkbox" id="tg-rsi"> RSI14 aşırı alım/satım</label>
+      <label class="chk-label"><input type="checkbox" id="tg-fnd"> Yüksek FR (&gt;0.1%)</label>
+    </div>
+    <div class="mfooter">
+      <button class="mbtn sec" onclick="closeModal('ov-tg')">Kapat</button>
+      <button class="mbtn pri" onclick="TG.save()">💾 Kaydet</button>
+      <button class="mbtn tl"  onclick="TG.test()">📤 Test</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/js/websocket.js"></script>
+<script src="/static/js/coinlist.js"></script>
+<script src="/static/js/indicators.js"></script>
+<script src="/static/js/chart.js"></script>
+<script src="/static/js/sevenchart.js"></script>
+<script src="/static/js/layout.js"></script>
+<script src="/static/js/telegram.js"></script>
+<script src="/static/js/ticker.js"></script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>

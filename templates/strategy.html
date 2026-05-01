@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strateji Tarayıcı | Futures Pro</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0b0d;
+            --card-bg: #16181d;
+            --accent: #667eea;
+            --long: #00ffaa;
+            --short: #ff4d4d;
+            --text-main: #e0e0e0;
+            --text-dim: #a0a0a0;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(45deg, var(--accent), #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .scanner-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding-bottom: 50px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn:hover {
+            filter: brightness(1.2);
+            transform: translateY(-2px);
+        }
+
+        .btn-refresh {
+            background: #2a2d35;
+        }
+        
+        /* Tabloyu kaydırılabilir yapalım ama başlıklar sabit kalsın */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: table; /* Reset for any potential flex/grid issues */
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #1f2229;
+            text-align: center; /* Merkeze aldık */
+            padding: 15px;
+            color: var(--text-dim);
+            font-weight: 400;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #252830;
+            text-align: center; /* Verileri merkeze aldık */
+        }
+
+        .symbol-cell {
+            font-weight: 700;
+            color: white;
+            text-align: left; /* Semboller solda kalsın */
+        }
+        
+        .symbol-cell a {
+            display: inline-block;
+        }
+
+        .signal-box {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            display: inline-block;
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .signal-long { background: rgba(0, 255, 170, 0.1); color: var(--long); border: 1px solid var(--long); }
+        .signal-short { background: rgba(255, 77, 77, 0.1); color: var(--short); border: 1px solid var(--short); }
+        .signal-neutral { color: var(--text-dim); }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #222;
+            border-top: 5px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .rsi-display {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            width: 100%;
+        }
+        .rsi-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .rsi-col .label {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+        }
+        .rsi-col .val {
+            font-size: 11px;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        select.btn {
+            appearance: none;
+            -webkit-appearance: none;
+            padding-right: 35px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 16px;
+        }
+
+        .search-input {
+            background: #252830;
+            border: 1px solid #3a3f4b;
+            border-radius: 8px;
+            color: white;
+            padding: 8px 15px;
+            font-size: 14px;
+            outline: none;
+            width: 250px;
+            transition: all 0.3s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0, 191, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+
+<div class="scanner-container">
+    <div class="header">
+        <div class="logo">FUTURES PRO SCANNER</div>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <select id="strategy-select" class="btn btn-refresh" onchange="startScan()">
+                <option value="3rsi">3 RSI</option>
+            </select>
+            <a href="/" style="color: var(--text-dim); text-decoration: none;">← Dashboard'a Dön</a>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+            <div id="scanner-controls">
+                <!-- Buraya JS ile buton gelecek -->
+            </div>
+            <input type="text" id="coin-search" class="search-input" placeholder="Coin Ara... (örn: BTC)" oninput="renderTable()">
+            <button class="btn btn-refresh" onclick="startScan()">Şimdi Yenile</button>
+        </div>
+        <div id="status" style="align-self: center; color: var(--text-dim); font-size: 14px;">Durum: Kontrol ediliyor...</div>
+    </div>
+
+    <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+        <p style="margin-top: 20px;">Coinler taranıyor, lütfen bekleyin...</p>
+    </div>
+
+    <table id="results-table">
+        <thead>
+            <tr>
+                <th>Sembol</th>
+                <th>5M</th>
+                <th>15M</th>
+                <th>30M</th>
+                <th>1H</th>
+                <th>4H</th>
+                <th>İşlemler</th>
+            </tr>
+        </thead>
+        <tbody id="results-body">
+            <!-- Veriler buraya gelecek -->
+        </tbody>
+ <script>
+    let isFirstLoad = true;
+    let lastData = [];
+
+    async function startScan() {
+        const loading = document.getElementById('loading');
+        const strategy = document.getElementById('strategy-select').value;
+
+        if (isFirstLoad) loading.style.display = 'flex';
+        
+        try {
+            const resp = await fetch(`/api/strategy/scanner?strategy=${strategy}`);
+            const data = await resp.json();
+
+            if (data.ok) {
+                lastData = data.results;
+                renderTable();
+                
+                const now = new Date();
+                document.getElementById('status').innerText = `Son güncelleme: ${now.toLocaleTimeString()}`;
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            loading.style.display = 'none';
+            isFirstLoad = false;
+        }
+    }
+
+    function renderTable() {
+        const body = document.getElementById('results-body');
+        const searchQuery = document.getElementById('coin-search').value.toUpperCase();
+        const checkIntervals = ['5m', '15m', '30m', '1h', '4h'];
+
+        // Filtreleme: Arama sorgusu + Sinyal olanlar
+        let filtered = lastData.filter(res => {
+            const matchesSearch = res.symbol.toUpperCase().includes(searchQuery);
+            const hasSignal = checkIntervals.some(tf => (res.signals[tf]?.signal || 'NEUTRAL') !== 'NEUTRAL');
+            return matchesSearch && hasSignal;
+        });
+
+        // Sıralama
+        filtered.sort((a, b) => {
+            const getScore = (item) => {
+                let score = 0;
+                checkIntervals.forEach(tf => {
+                    if ((item.signals[tf]?.signal || 'NEUTRAL') !== 'NEUTRAL') score += 1;
+                });
+                if (score === 5) score += 100;
+                return score;
+            };
+            return getScore(b) - getScore(a);
+        });
+
+        body.innerHTML = '';
+        if (filtered.length === 0) {
+            body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--text-dim);">Uygun sinyal bulunamadı...</td></tr>';
+            return;
+        }
+
+        filtered.forEach(res => {
+            const binanceUrl = `https://www.binance.com/tr/futures/${res.symbol}`;
+            const tvUrl = `https://www.tradingview.com/chart/?symbol=BINANCE:${res.symbol}.P`;
+            const multiUrl = `/multi-chart/${res.symbol}`;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="symbol-cell">
+                    <a href="${multiUrl}" target="_blank" style="color: white; text-decoration: none; border-bottom: 1px dashed var(--accent);">
+                        ${res.symbol}
+                    </a>
+                </td>
+                <td>${renderSignal(res.signals['5m'])}</td>
+                <td>${renderSignal(res.signals['15m'])}</td>
+                <td>${renderSignal(res.signals['30m'])}</td>
+                <td>${renderSignal(res.signals['1h'])}</td>
+                <td>${renderSignal(res.signals['4h'])}</td>
+                <td>
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <a href="${binanceUrl}" target="_blank" style="text-decoration: none; background: #f0b90b; color: black; padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; text-align:center;">BIN</a>
+                        <a href="${tvUrl}" target="_blank" style="text-decoration: none; background: #2962ff; color: white; padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; text-align:center;">TV</a>
+                        <a href="${multiUrl}" target="_blank" style="text-decoration: none; background: var(--accent); color: white; padding: 4px; border-radius: 4px; font-size: 10px; font-weight: bold; text-align:center;">3RSI</a>
+                    </div>
+                </td>
+            `;
+            body.appendChild(tr);
+        });
+    }
+
+    function renderSignal(sig) {
+        if (!sig) return '<span class="signal-neutral">-</span>';
+        
+        let cls = 'signal-neutral';
+        if (sig.signal === 'LONG') cls = 'signal-long';
+        if (sig.signal === 'SHORT') cls = 'signal-short';
+
+        return `
+            <div style="animation: fadeIn 0.5s; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                <span class="signal-box ${cls}">${sig.signal}</span>
+                <div class="rsi-display">
+                    <div class="rsi-col">
+                        <span class="label">R4:</span>
+                        <span class="val">${sig.rsi4}</span>
+                    </div>
+                    <div class="rsi-col">
+                        <span class="label">R14:</span>
+                        <span class="val">${sig.rsi14}</span>
+                    </div>
+                    <div class="rsi-col">
+                        <span class="label">R100:</span>
+                        <span class="val">${sig.rsi100}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function checkScannerStatus() {
+        try {
+            const resp = await fetch('/api/strategy/status');
+            const data = await resp.json();
+            
+            const controls = document.getElementById('scanner-controls');
+            if (data.started) {
+                controls.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="color: var(--long); font-weight: bold; font-size: 13px;">● Tarayıcı Aktif</span>
+                        <button class="btn" onclick="stopScanner()" style="background: var(--short); padding: 5px 12px; font-size: 12px;">Sistemi Durdur</button>
+                    </div>
+                `;
+                return true;
+            } else {
+                controls.innerHTML = '<button class="btn" onclick="activateScanner()" style="background: var(--accent);">Sistemi Başlat</button>';
+                return false;
+            }
+        } catch (e) { return false; }
+    }
+
+    async function stopScanner() {
+        const controls = document.getElementById('scanner-controls');
+        controls.innerHTML = '<span style="color: var(--text-dim);">Durduruluyor...</span>';
+        
+        try {
+            await fetch('/api/strategy/stop');
+            setTimeout(() => {
+                checkScannerStatus();
+                if (window.scanTimer) {
+                    clearInterval(window.scanTimer);
+                    window.scanTimer = null;
+                }
+                lastData = [];
+                renderTable();
+            }, 1000);
+        } catch (e) {
+            alert("Durdurma hatası!");
+            checkScannerStatus();
+        }
+    }
+
+    async function activateScanner() {
+        const controls = document.getElementById('scanner-controls');
+        controls.innerHTML = '<span style="color: var(--text-dim);">Başlatılıyor...</span>';
+        
+        try {
+            await fetch('/api/strategy/start');
+            setTimeout(() => {
+                checkScannerStatus();
+                startScan();
+            }, 2000);
+        } catch (e) {
+            alert("Başlatma hatası!");
+            checkScannerStatus();
+        }
+    }
+
+    window.onload = async () => {
+        const isStarted = await checkScannerStatus();
+        if (isStarted) {
+            startScan();
+            setInterval(startScan, 5000);
+        } else {
+            // Başlatılmamışsa sadece status kontrolü yapalım
+            setInterval(async () => {
+                const s = await checkScannerStatus();
+                if (s && !window.scanTimer) {
+                    window.scanTimer = setInterval(startScan, 5000);
+                    startScan();
+                }
+            }, 3000);
+        }
+    };
+</script>
+
+</body>
+</html>

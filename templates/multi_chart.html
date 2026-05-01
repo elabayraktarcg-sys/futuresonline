@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ symbol }} - Pro Multi-Chart | Futures Pro</title>
+    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0a0b0d;
+            --card-bg: #16181d;
+            --accent: #667eea;
+            --long: #00ffaa;
+            --short: #ff4d4d;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-dark);
+            color: white;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        .header {
+            height: 45px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            background: #111;
+            border-bottom: 1px solid #333;
+            justify-content: space-between;
+            z-index: 100;
+        }
+
+        .logo { font-weight: 700; font-size: 14px; color: var(--accent); }
+        .symbol-name { font-weight: 600; font-size: 16px; }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            height: calc(100vh - 45px);
+            width: 100%;
+            gap: 1px;
+            background: #222;
+        }
+
+        .chart-wrapper {
+            background: var(--bg-dark);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        .chart-container {
+            flex: 1;
+            width: 100%;
+            min-height: 100px;
+        }
+
+        /* Resizer Bar */
+        .resizer {
+            height: 4px;
+            background: #333;
+            cursor: ns-resize;
+            transition: background 0.2s;
+            z-index: 15;
+        }
+        .resizer:hover { background: var(--accent); }
+
+        .rsi-container-wrap {
+            width: 100%;
+            position: relative;
+            background: var(--bg-dark);
+        }
+
+        .rsi-legend {
+            position: absolute;
+            top: 40px;
+            left: 10px;
+            z-index: 10;
+            font-size: 10px;
+            background: rgba(0,0,0,0.5);
+            padding: 5px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        .loading-overlay {
+            position: absolute;
+            top:0; left:0; right:0; bottom:0;
+            background: var(--bg-dark);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            font-size: 12px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="logo">FUTURES PRO MULTI-CHART</div>
+    <div class="symbol-name">{{ symbol }} - 3'lü RSI Analizi</div>
+    <div style="font-size: 12px; color: #666;">Canlı Teknik Veri</div>
+</div>
+
+<div class="chart-grid" id="grid">
+    <!-- Chartlar buraya gelecek -->
+</div>
+
+<script>
+    const symbol = "{{ symbol }}";
+    const timeframes = [
+        { label: '5 DAKİKA', interval: '5m' },
+        { label: '15 DAKİKA', interval: '15m' },
+        { label: '30 DAKİKA', interval: '30m' },
+        { label: '1 SAAT', interval: '1h' },
+        { label: '4 SAAT', interval: '4h' },
+        { label: '1 GÜN', interval: '1d' }
+    ];
+
+    function calculateRSI(data, period) {
+        const rsi = [];
+        let gains = 0;
+        let losses = 0;
+
+        for (let i = 1; i < data.length; i++) {
+            const difference = data[i].close - data[i - 1].close;
+            if (difference >= 0) {
+                gains += difference;
+            } else {
+                losses -= difference;
+            }
+
+            if (i >= period) {
+                if (i === period) {
+                    gains /= period;
+                    losses /= period;
+                } else {
+                    const prevGain = gains;
+                    const prevLoss = losses;
+                    const currentGain = difference >= 0 ? difference : 0;
+                    const currentLoss = difference < 0 ? -difference : 0;
+
+                    gains = (prevGain * (period - 1) + currentGain) / period;
+                    losses = (prevLoss * (period - 1) + currentLoss) / period;
+                }
+
+                const rs = gains / losses;
+                const rsiValue = 100 - (100 / (1 + rs));
+                rsi.push({ time: data[i].time, value: rsiValue });
+            } else {
+                rsi.push({ time: data[i].time, value: 50 });
+            }
+        }
+        return rsi;
+    }
+
+    let savedRsiHeight = localStorage.getItem('rsiHeight') || '160';
+
+    async function createChart(container, tf) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chart-wrapper';
+        wrapper.innerHTML = `
+            <div class="loading-overlay" id="loader-${tf.interval}">Veriler çekiliyor...</div>
+            <div class="timeframe-tag">${tf.label}</div>
+            <div class="rsi-legend">
+                <div class="legend-item"><div class="dot" style="background: white"></div> RSI 4</div>
+                <div class="legend-item"><div class="dot" style="background: #ffcc00"></div> RSI 14</div>
+                <div class="legend-item"><div class="dot" style="background: #ff4d4d"></div> RSI 100</div>
+            </div>
+            <div class="chart-container"></div>
+            <div class="resizer"></div>
+            <div class="rsi-container-wrap" style="height: ${savedRsiHeight}px"></div>
+        `;
+        container.appendChild(wrapper);
+
+        const chartDiv = wrapper.querySelector('.chart-container');
+        const rsiContainer = wrapper.querySelector('.rsi-container-wrap');
+        const resizer = wrapper.querySelector('.resizer');
+        const loader = wrapper.querySelector('.loading-overlay');
+
+        // Resizer Logic
+        let isResizing = false;
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            document.body.style.cursor = 'ns-resize';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const newRsiHeight = wrapperRect.bottom - e.clientY;
+            if (newRsiHeight > 50 && newRsiHeight < 400) {
+                // Tüm RSI'ları aynı anda güncelle
+                document.querySelectorAll('.rsi-container-wrap').forEach(div => {
+                    div.style.height = `${newRsiHeight}px`;
+                });
+                savedRsiHeight = newRsiHeight;
+                localStorage.setItem('rsiHeight', newRsiHeight);
+                // Grafiklere resize bildir
+                window.dispatchEvent(new Event('resize'));
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+            }
+        });
+
+        try {
+            const resp = await fetch(`/api/klines/${symbol}/${tf.interval}?limit=350`);
+            const data = await resp.json();
+            
+            if (!data.ok || !data.candles || data.candles.length === 0) {
+                loader.innerText = data.error || 'Veri çekilemedi';
+                return;
+            }
+
+            const formatted = data.candles.map(c => ({
+                time: c.time,
+                open: c.open, high: c.high, low: c.low, close: c.close
+            }));
+
+            const chart = LightweightCharts.createChart(chartDiv, {
+                layout: { backgroundColor: '#0a0b0d', textColor: '#d1d4dc' },
+                grid: { vertLines: { color: '#1f2229' }, horzLines: { color: '#1f2229' } },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                timeScale: { borderColor: '#333', rightOffset: 30, barSpacing: 12 },
+            });
+
+            const candleSeries = chart.addCandlestickSeries({
+                upColor: '#00ffaa', downColor: '#ff4d4d', borderVisible: false,
+                wickUpColor: '#00ffaa', wickDownColor: '#ff4d4d',
+            });
+            candleSeries.priceScale().applyOptions({
+                scaleMargins: { top: 0.15, bottom: 0.15 },
+            });
+            candleSeries.setData(formatted);
+
+            const rsiChart = LightweightCharts.createChart(rsiContainer, {
+                layout: { backgroundColor: '#0a0b0d', textColor: '#d1d4dc' },
+                grid: { vertLines: { color: '#1f2229' }, horzLines: { color: '#1f2229' } },
+                timeScale: { visible: false, rightOffset: 30, barSpacing: 12 },
+                priceScale: { position: 'right', mode: 0, autoScale: true, scaleMargins: { top: 0.1, bottom: 0.1 } },
+            });
+
+            // RSI Levels
+            [30, 50, 70].forEach(level => {
+                rsiChart.addLineSeries({
+                    color: '#2a2e39', lineWidth: 1, lineStyle: 2, lastValueVisible: true, priceLineVisible: false,
+                }).setData(formatted.map(c => ({ time: c.time, value: level })));
+            });
+
+            const rsi4Series = rsiChart.addLineSeries({ color: 'white', lineWidth: 1 });
+            const rsi14Series = rsiChart.addLineSeries({ color: '#ffcc00', lineWidth: 1 });
+            const rsi100Series = rsiChart.addLineSeries({ color: '#ff4d4d', lineWidth: 1 });
+
+            const rsi4Data = calculateRSI(formatted, 4);
+            const rsi14Data = calculateRSI(formatted, 14);
+            const rsi100Data = calculateRSI(formatted, 100);
+
+            rsi4Series.setData(rsi4Data);
+            rsi14Series.setData(rsi14Data);
+            rsi100Series.setData(rsi100Data);
+
+            const updateMarkers = (r4, r14) => {
+                const mk = [];
+                const rmk = [];
+                for (let i = 1; i < r4.length; i++) {
+                    if (r4[i-1].value <= r14[i-1].value && r4[i].value > r14[i].value) {
+                        mk.push({ time: r4[i].time, position: 'belowBar', color: '#00ffaa', shape: 'arrowUp', text: 'L' });
+                        rmk.push({ time: r4[i].time, position: 'inBar', color: '#00ffaa', shape: 'circle' });
+                    } else if (r4[i-1].value >= r14[i-1].value && r4[i].value < r14[i].value) {
+                        mk.push({ time: r4[i].time, position: 'aboveBar', color: '#ff4d4d', shape: 'arrowDown', text: 'S' });
+                        rmk.push({ time: r4[i].time, position: 'inBar', color: '#ff4d4d', shape: 'circle' });
+                    }
+                }
+                candleSeries.setMarkers(mk);
+                rsi4Series.setMarkers(rmk);
+            };
+            updateMarkers(rsi4Data, rsi14Data);
+
+            // Live Update Function
+            const refreshData = async () => {
+                try {
+                    const r = await fetch(`/api/klines/${symbol}/${tf.interval}?limit=350`);
+                    const d = await r.json();
+                    if (d.ok && d.candles.length > 0) {
+                        const f = d.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
+                        candleSeries.setData(f);
+                        const r4 = calculateRSI(f, 4);
+                        const r14 = calculateRSI(f, 14);
+                        const r100 = calculateRSI(f, 100);
+                        rsi4Series.setData(r4);
+                        rsi14Series.setData(r14);
+                        rsi100Series.setData(r100);
+                        updateMarkers(r4, r14);
+                    }
+                } catch (e) { console.error("Update error:", e); }
+            };
+            setInterval(refreshData, 5000); // Her 5 saniyede bir güncelle
+
+            // Sync Time Scales (Bidirectional)
+            let isSyncing = false;
+            chart.timeScale().subscribeVisibleTimeRangeChange(range => {
+                if (isSyncing) return;
+                isSyncing = true;
+                rsiChart.timeScale().setVisibleRange(range);
+                isSyncing = false;
+            });
+            rsiChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+                if (isSyncing) return;
+                isSyncing = true;
+                chart.timeScale().setVisibleRange(range);
+                isSyncing = false;
+            });
+
+            // Sync Crosshair
+            chart.subscribeCrosshairMove(param => {
+                if (!param.time) { rsiChart.clearCrosshairPosition(); return; }
+                rsiChart.setCrosshairPosition(param.point.x, param.point.y, param.time);
+            });
+            rsiChart.subscribeCrosshairMove(param => {
+                if (!param.time) { chart.clearCrosshairPosition(); return; }
+                chart.setCrosshairPosition(param.point.x, param.point.y, param.time);
+            });
+
+            loader.style.display = 'none';
+
+            // Auto Resize
+            const resizeHandler = () => {
+                chart.resize(chartDiv.clientWidth, chartDiv.clientHeight);
+                rsiChart.resize(rsiContainer.clientWidth, rsiContainer.clientHeight);
+            };
+            window.addEventListener('resize', resizeHandler);
+
+        } catch (e) { 
+            console.error(e); 
+            loader.innerText = 'JS Hatası: ' + e.message;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof LightweightCharts === 'undefined') {
+            document.getElementById('grid').innerHTML = '<div style="padding: 20px; color: #ff4d4d;">Hata: Grafik kütüphanesi yüklenemedi. Lütfen internet bağlantınızı kontrol edin.</div>';
+            return;
+        }
+        const grid = document.getElementById('grid');
+        timeframes.forEach(tf => createChart(grid, tf));
+    });
+</script>
+
+</body>
+</html>
